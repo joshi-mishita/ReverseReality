@@ -3,85 +3,71 @@ import { query } from "@/lib/db";
 
 export async function POST(req) {
   try {
-    const { message, teamId } = await req.json();
+    const { message, teamId, level } = await req.json();
 
-    if (!teamId) {
+    // ❌ validation
+    if (!teamId || !message) {
       return NextResponse.json({
-        reply: "❌ No team ID provided",
+        reply: "❌ Missing data",
         success: false,
       });
     }
 
-    // 🔹 GET CURRENT LEVEL FROM PROGRESS
-    let progress = await query(
-      "SELECT * FROM team_progress WHERE team_id = $1 ORDER BY level_id DESC LIMIT 1",
-      [teamId]
-    );
-
-    let levelOrder = 1;
-
-    if (progress && progress.rows.length > 0) {
-      const last = progress.rows[0];
-
-      // If completed → go next level
-      levelOrder =
-        last.status === "completed"
-          ? last.level_id + 1
-          : last.level_id;
-    }
-
-    // 🔹 GET LEVEL DATA
+    // 🔹 GET LEVEL DATA (based on selected level from UI)
     const levelData = await query(
       "SELECT * FROM levels WHERE order_index = $1",
-      [levelOrder]
+      [level]
     );
 
     if (!levelData || levelData.rows.length === 0) {
       return NextResponse.json({
-        reply: "🎉 All levels completed!",
-        success: true,
-        level: levelOrder,
+        reply: "❌ Level not found",
+        success: false,
       });
     }
 
-    const level = levelData.rows[0];
+    const currentLevel = levelData.rows[0];
 
-    const systemPrompt = level.system_prompt;
-    const answer = level.win_condition;
-    const levelId = level.id;
+    const systemPrompt = currentLevel.system_prompt;
+    const winCondition = currentLevel.win_condition;
+    const levelId = currentLevel.id;
 
     // 🔹 SAVE USER MESSAGE
     await query(
       "INSERT INTO chat_history (team_id, level_id, role, message) VALUES ($1,$2,$3,$4)",
       [teamId, levelId, "user", message]
-    ).catch(() => {});
+    );
 
-    // 🔹 AI CALL
+    // 🔹 CALL OPENROUTER API
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "ReverseReality",
       },
       body: JSON.stringify({
-        model: "meta-llama/llama-3-8b-instruct",
+        model: "openai/gpt-3.5-turbo",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message },
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: message,
+          },
         ],
       }),
     });
 
     const data = await res.json();
-    
+    console.log("AI RESPONSE:", data);
 
+    // ❌ API error handling
     if (data.error) {
       return NextResponse.json({
         reply: "❌ API Error: " + data.error.message,
         success: false,
-        level: levelOrder,
       });
     }
 
@@ -92,29 +78,29 @@ export async function POST(req) {
     await query(
       "INSERT INTO chat_history (team_id, level_id, role, message) VALUES ($1,$2,$3,$4)",
       [teamId, levelId, "assistant", reply]
-    ).catch(() => {});
+    );
 
-    // 🔥 CHECK WIN CONDITION
-    const success = reply.toLowerCase().includes(answer);
+    // 🔥 CHECK IF LEVEL COMPLETED
+    const success = reply
+      .toLowerCase()
+      .includes(winCondition.toLowerCase());
 
-    if (success) {
-      // Mark level completed
-      await query(
-        "INSERT INTO team_progress (team_id, level_id, status, attempts, points_earned) VALUES ($1,$2,$3,$4,$5)",
-        [teamId, levelOrder, "completed", 1, level.points]
-      ).catch(() => {});
-    } else {
-      // Update attempts
-      await query(
-        "INSERT INTO team_progress (team_id, level_id, status, attempts, points_earned) VALUES ($1,$2,$3,$4,$5)",
-        [teamId, levelOrder, "in_progress", 1, 0]
-      ).catch(() => {});
-    }
+    // 🔹 SAVE PROGRESS
+    await query(
+      "INSERT INTO team_progress (team_id, level_id, status, attempts, points_earned) VALUES ($1,$2,$3,$4,$5)",
+      [
+        teamId,
+        level,
+        success ? "completed" : "in_progress",
+        1,
+        success ? currentLevel.points : 0,
+      ]
+    );
 
     return NextResponse.json({
       reply,
       success,
-      level: levelOrder,
+      level,
     });
   } catch (err) {
     console.error("SERVER ERROR:", err);
