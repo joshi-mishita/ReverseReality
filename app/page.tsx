@@ -1,169 +1,191 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Home() {
+  const [teamId, setTeamId] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState("");
   const [level, setLevel] = useState(1);
   const [success, setSuccess] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  const sendMessage = async () => {
-    if (!message) return;
-
-    setLoading(true);
-    setReply("");
-    setSuccess(false);
-
-    try {
-      const res = await fetch("/api/submit", {
-        method: "POST",
-        body: JSON.stringify({ message }),
-      });
-
-      const data = await res.json();
-
-      setReply(data.reply);
-      setSuccess(data.success);
-      setLevel(data.level || 1);
-    } catch (err) {
-      setReply("❌ Error sending message");
+  useEffect(() => {
+    const stored = localStorage.getItem("teamId");
+    if (stored) {
+      setTeamId(stored);
+      setLoggedIn(true);
     }
+  }, []);
 
-    setLoading(false);
+  const login = async () => {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ team_id: teamId }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      localStorage.setItem("teamId", teamId);
+      setLoggedIn(true);
+    } else {
+      alert("Team not found");
+    }
   };
 
-  return (
-    <main style={styles.container}>
-      {/* HEADER */}
-      <h1 style={styles.title}>🔥 ReverseReality AI Challenge</h1>
-      <h2 style={styles.level}>Level {level} 🎯</h2>
+  const sendMessage = async () => {
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        teamId,
+      }),
+    });
 
-      {/* INPUT BOX */}
-      <div style={styles.inputContainer}>
+    const data = await res.json();
+
+    setReply(data.reply);
+    setSuccess(data.success);
+    setLevel(data.level || 1);
+  };
+
+  // 🔐 LOGIN UI
+  if (!loggedIn) {
+    return (
+      <div style={styles.bg}>
+        <div style={styles.card}>
+          <h1 style={styles.title}>🌴 ReverseReality</h1>
+          <p style={styles.subtitle}>AI Challenge Arena</p>
+
+          <input
+            placeholder="Team ID"
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
+            style={styles.input}
+          />
+
+          <button onClick={login} style={styles.button}>
+            Enter Arena →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 🎮 GAME UI
+  return (
+    <div style={styles.bg}>
+      <div style={styles.gameCard}>
+        <div style={styles.header}>
+          <h2>Level {level} 🎯</h2>
+        </div>
+
         <input
-          type="text"
-          placeholder="Type your jailbreak prompt..."
+          placeholder="Type your attack prompt..."
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           style={styles.input}
         />
 
         <button onClick={sendMessage} style={styles.button}>
-          {loading ? "..." : "Send"}
+          Send →
         </button>
+
+        {reply && (
+          <div style={styles.response}>
+            <b>AI:</b> {reply}
+          </div>
+        )}
+
+        {success && (
+          <div style={styles.success}>🎉 Level Completed!</div>
+        )}
       </div>
-
-      {/* USER */}
-      {message && (
-        <div style={styles.cardUser}>
-          <strong>🧑 You:</strong>
-          <p>{message}</p>
-        </div>
-      )}
-
-      {/* AI */}
-      {reply && (
-        <div style={styles.cardAI}>
-          <strong>🤖 AI:</strong>
-          <p>{reply}</p>
-        </div>
-      )}
-
-      {/* SUCCESS */}
-      {success && (
-        <div style={styles.success}>
-          🎉 Level Completed! Next Level Unlocked 🚀
-        </div>
-      )}
-
-      {/* ERROR */}
-      {reply.startsWith("❌") && (
-        <div style={styles.error}>❌ Try Again</div>
-      )}
-    </main>
+    </div>
   );
 }
 
-/* 🌴 TROPICAL DARK THEME STYLES */
-
 const styles = {
-  container: {
+  bg: {
     minHeight: "100vh",
-    background: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)",
+    background:
+      "radial-gradient(circle at top, #022c22, #010f0c)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
     color: "white",
+    fontFamily: "system-ui",
+  },
+
+  card: {
+    background: "rgba(0, 50, 30, 0.6)",
+    backdropFilter: "blur(20px)",
     padding: "40px",
-    fontFamily: "Poppins, sans-serif",
+    borderRadius: "20px",
+    width: "320px",
+    boxShadow: "0 0 40px rgba(34,197,94,0.2)",
+    textAlign: "center",
+  },
+
+  gameCard: {
+    background: "rgba(0, 50, 30, 0.6)",
+    backdropFilter: "blur(20px)",
+    padding: "40px",
+    borderRadius: "20px",
+    width: "500px",
+    boxShadow: "0 0 50px rgba(34,197,94,0.2)",
   },
 
   title: {
-    fontSize: "36px",
+    fontSize: "32px",
     fontWeight: "bold",
-    color: "#00ffd5",
-    textShadow: "0 0 10px #00ffd5",
   },
 
-  level: {
-    marginTop: "10px",
-    color: "#ffb347",
+  subtitle: {
+    color: "#4ade80",
+    marginBottom: "20px",
   },
 
-  inputContainer: {
-    marginTop: "30px",
-    display: "flex",
-    gap: "10px",
+  header: {
+    marginBottom: "20px",
+    fontSize: "22px",
   },
 
   input: {
-    padding: "12px",
-    width: "320px",
+    width: "100%",
+    padding: "14px",
+    marginBottom: "15px",
     borderRadius: "10px",
-    border: "none",
-    outline: "none",
-    background: "#1e2a38",
+    border: "1px solid #065f46",
+    background: "#011d17",
     color: "white",
+    fontSize: "14px",
   },
 
   button: {
-    padding: "12px 20px",
+    width: "100%",
+    padding: "14px",
     borderRadius: "10px",
     border: "none",
-    cursor: "pointer",
-    background: "linear-gradient(45deg, #ff7e5f, #feb47b)",
-    color: "black",
+    background: "linear-gradient(90deg, #16a34a, #22c55e)",
+    color: "white",
     fontWeight: "bold",
-    transition: "0.3s",
+    cursor: "pointer",
+    marginBottom: "15px",
   },
 
-  cardUser: {
-    marginTop: "20px",
-    padding: "15px",
-    borderRadius: "12px",
-    background: "#1b263b",
-    borderLeft: "4px solid #00ffd5",
-  },
-
-  cardAI: {
+  response: {
     marginTop: "15px",
     padding: "15px",
-    borderRadius: "12px",
-    background: "#16213e",
-    borderLeft: "4px solid #ff7e5f",
+    background: "#01281f",
+    borderRadius: "10px",
   },
 
   success: {
-    marginTop: "20px",
-    padding: "12px",
-    background: "#00ff88",
-    color: "black",
-    borderRadius: "10px",
-    fontWeight: "bold",
-  },
-
-  error: {
     marginTop: "10px",
-    color: "#ff4d4d",
+    color: "#4ade80",
     fontWeight: "bold",
   },
 };

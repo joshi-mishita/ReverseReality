@@ -3,39 +3,54 @@ import { query } from "@/lib/db";
 
 export async function POST(req) {
   try {
-    const { message } = await req.json();
+    const { message, teamId } = await req.json();
 
-    const teamId = 1;
+    if (!teamId) {
+      return NextResponse.json({
+        reply: "❌ No team ID provided",
+        success: false,
+      });
+    }
 
-    // 🔹 Get current level from progress
+    // 🔹 GET CURRENT LEVEL FROM PROGRESS
     let progress = await query(
       "SELECT * FROM team_progress WHERE team_id = $1 ORDER BY level_id DESC LIMIT 1",
       [teamId]
     );
 
-    let level = 1;
+    let levelOrder = 1;
 
     if (progress && progress.rows.length > 0) {
       const last = progress.rows[0];
-      level = last.status === "completed" ? last.level_id + 1 : last.level_id;
+
+      // If completed → go next level
+      levelOrder =
+        last.status === "completed"
+          ? last.level_id + 1
+          : last.level_id;
     }
 
-    // 🔹 Get level data
+    // 🔹 GET LEVEL DATA
     const levelData = await query(
       "SELECT * FROM levels WHERE order_index = $1",
-      [level]
+      [levelOrder]
     );
 
-    const systemPrompt =
-      levelData?.rows?.[0]?.system_prompt ||
-      "You are a secure AI.";
+    if (!levelData || levelData.rows.length === 0) {
+      return NextResponse.json({
+        reply: "🎉 All levels completed!",
+        success: true,
+        level: levelOrder,
+      });
+    }
 
-    const answer =
-      levelData?.rows?.[0]?.win_condition || "hack123";
+    const level = levelData.rows[0];
 
-    const levelId = levelData?.rows?.[0]?.id;
+    const systemPrompt = level.system_prompt;
+    const answer = level.win_condition;
+    const levelId = level.id;
 
-    // 🔹 Save user message
+    // 🔹 SAVE USER MESSAGE
     await query(
       "INSERT INTO chat_history (team_id, level_id, role, message) VALUES ($1,$2,$3,$4)",
       [teamId, levelId, "user", message]
@@ -60,19 +75,20 @@ export async function POST(req) {
     });
 
     const data = await res.json();
+    
 
     if (data.error) {
       return NextResponse.json({
         reply: "❌ API Error: " + data.error.message,
         success: false,
-        level,
+        level: levelOrder,
       });
     }
 
     const reply =
       data?.choices?.[0]?.message?.content || "❌ No response";
 
-    // 🔹 Save AI reply
+    // 🔹 SAVE AI RESPONSE
     await query(
       "INSERT INTO chat_history (team_id, level_id, role, message) VALUES ($1,$2,$3,$4)",
       [teamId, levelId, "assistant", reply]
@@ -85,14 +101,20 @@ export async function POST(req) {
       // Mark level completed
       await query(
         "INSERT INTO team_progress (team_id, level_id, status, attempts, points_earned) VALUES ($1,$2,$3,$4,$5)",
-        [teamId, level, "completed", 1, levelData.rows[0].points]
+        [teamId, levelOrder, "completed", 1, level.points]
+      ).catch(() => {});
+    } else {
+      // Update attempts
+      await query(
+        "INSERT INTO team_progress (team_id, level_id, status, attempts, points_earned) VALUES ($1,$2,$3,$4,$5)",
+        [teamId, levelOrder, "in_progress", 1, 0]
       ).catch(() => {});
     }
 
     return NextResponse.json({
       reply,
       success,
-      level,
+      level: levelOrder,
     });
   } catch (err) {
     console.error("SERVER ERROR:", err);
