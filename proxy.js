@@ -1,11 +1,5 @@
-export { default } from 'next-auth/middleware'
+import { NextResponse } from "next/server";
 
-export const config = {
-  matcher: [
-    '/arena/:path*',
-    '/api/submit/:path*',
-    '/api/progress/:path*',
-    '/api/level/:path*',
-    '/api/chat/:path*'
-  ]
+export function proxy(request) {
+  return NextResponse.next();
 }
